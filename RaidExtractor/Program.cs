@@ -13,7 +13,6 @@ namespace RaidExtractor
     {
         private static readonly string LogDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
         private static readonly string LogFilePath = Path.Combine(LogDirectory, "raidextractor.log");
-        private const string ExtractorVersion = "1.0.0";
 
         public static JsonSerializerSettings SerializerSettings = new JsonSerializerSettings
         {
@@ -37,6 +36,10 @@ namespace RaidExtractor
             [Option("output", Required = false, Default = "./export",
               HelpText = "Destination output directory path. Defaults to ./export")]
             public string? Output { get; set; }
+
+            [Option("version", Required = false, Default = false,
+              HelpText = "Display version information.")]
+            public bool Version { get; set; }
         }
 
         static void Main(string[] args)
@@ -81,22 +84,30 @@ namespace RaidExtractor
 
         private static void RunWithOptions(Options options)
         {
+            if (options.Version)
+            {
+                Console.WriteLine($"RaidExtractor v{ExtractorVersion.Current}");
+                return;
+            }
+
             if (!options.Scan)
             {
                 Console.WriteLine("RaidExtractor - .NET 8 Console Edition");
                 Console.WriteLine();
                 Console.WriteLine("Usage:");
                 Console.WriteLine("  RaidExtractor --scan --output <path>");
+                Console.WriteLine("  RaidExtractor --version");
                 Console.WriteLine();
                 Console.WriteLine("Options:");
                 Console.WriteLine("  --scan          Execute extraction scan");
                 Console.WriteLine("  --output <path> Output directory path (default: ./export)");
+                Console.WriteLine("  --version       Display version information");
                 return;
             }
 
             string outputDirectory = options.Output ?? "./export";
 
-            Log("Starting RaidExtractor scan...");
+            Log($"Starting RaidExtractor v{ExtractorVersion.Current} scan...");
 
             try
             {
@@ -125,20 +136,42 @@ namespace RaidExtractor
 
                 ExportJsonFiles(dump, outputDirectory);
 
-                Log("Export complete.");
+                LogExtractionSummary(dump, true);
                 Console.WriteLine($"SUCCESS: Extraction completed. Files exported to {outputDirectory}");
             }
             catch (Exception ex)
             {
-                Log($"ERROR: {ex.Message}");
+                Log($"ERROR: Fatal error during extraction - {ex.Message}");
                 Log($"Stack trace: {ex.StackTrace}");
                 Console.WriteLine($"ERROR: Extraction failed - {ex.Message}");
                 WriteErrorFile(outputDirectory, ex.Message);
+                LogExtractionSummary(null, false);
             }
+        }
+
+        private static void LogExtractionSummary(AccountDump? dump, bool success)
+        {
+            Log("[INFO] Extraction Summary:");
+            if (dump != null)
+            {
+                Log($"[INFO] Champions: {dump.Heroes?.Count ?? 0}");
+                Log($"[INFO] Artifacts: {dump.Artifacts?.Count ?? 0}");
+            }
+            else
+            {
+                Log("[INFO] Champions: 0");
+                Log("[INFO] Artifacts: 0");
+            }
+            Log($"[INFO] Status: {(success ? "Success" : "Failure")}");
         }
 
         private static void ExportJsonFiles(AccountDump dump, string outputDirectory)
         {
+            if (!ValidateData(dump, outputDirectory))
+            {
+                return;
+            }
+
             Log("Exporting roster.json");
             var roster = ConvertToRoster(dump);
             WriteJsonFile(Path.Combine(outputDirectory, "roster.json"), roster);
@@ -154,6 +187,33 @@ namespace RaidExtractor
             Log("Exporting metadata.json");
             var metadata = CreateMetadata(outputDirectory);
             WriteJsonFile(Path.Combine(outputDirectory, "metadata.json"), metadata);
+
+            Log("Export complete.");
+        }
+
+        private static bool ValidateData(AccountDump dump, string outputDirectory)
+        {
+            var errors = new List<string>();
+
+            if (dump.Heroes == null)
+            {
+                errors.Add("Roster data is null");
+            }
+
+            if (dump.Artifacts == null)
+            {
+                errors.Add("Artifacts data is null");
+            }
+
+            if (errors.Count > 0)
+            {
+                string errorMessage = "Validation failed: " + string.Join(", ", errors);
+                Log($"ERROR: {errorMessage}");
+                WriteErrorFile(outputDirectory, errorMessage);
+                return false;
+            }
+
+            return true;
         }
 
         private static void WriteJsonFile(string filePath, object data)
@@ -273,7 +333,7 @@ namespace RaidExtractor
             return new
             {
                 extractionTimestamp = DateTime.UtcNow.ToString("o"),
-                extractorVersion = ExtractorVersion,
+                extractorVersion = ExtractorVersion.Current,
                 exportPath = Path.GetFullPath(outputPath)
             };
         }
