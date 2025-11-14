@@ -1,6 +1,7 @@
 using System;
 using System.IO;
-using System.IO.Compression;
+using System.Collections.Generic;
+using System.Linq;
 using CommandLine;
 using RaidExtractor.Core;
 using Newtonsoft.Json;
@@ -12,6 +13,7 @@ namespace RaidExtractor
     {
         private static readonly string LogDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
         private static readonly string LogFilePath = Path.Combine(LogDirectory, "raidextractor.log");
+        private const string ExtractorVersion = "1.0.0";
 
         public static JsonSerializerSettings SerializerSettings = new JsonSerializerSettings
         {
@@ -32,8 +34,8 @@ namespace RaidExtractor
               HelpText = "Run the extraction scan on the running Raid: Shadow Legends process.")]
             public bool Scan { get; set; }
 
-            [Option("output", Required = false, Default = "artifacts.json",
-              HelpText = "Destination output file path. Defaults to artifacts.json")]
+            [Option("output", Required = false, Default = "./export",
+              HelpText = "Destination output directory path. Defaults to ./export")]
             public string? Output { get; set; }
         }
 
@@ -88,14 +90,22 @@ namespace RaidExtractor
                 Console.WriteLine();
                 Console.WriteLine("Options:");
                 Console.WriteLine("  --scan          Execute extraction scan");
-                Console.WriteLine("  --output <path> Output file path (default: artifacts.json)");
+                Console.WriteLine("  --output <path> Output directory path (default: ./export)");
                 return;
             }
+
+            string outputDirectory = options.Output ?? "./export";
 
             Log("Starting RaidExtractor scan...");
 
             try
             {
+                if (!Directory.Exists(outputDirectory))
+                {
+                    Directory.CreateDirectory(outputDirectory);
+                    Log($"Created output directory: {outputDirectory}");
+                }
+
                 Log("Initializing extractor...");
                 Extractor raidExtractor = new Extractor();
 
@@ -106,29 +116,166 @@ namespace RaidExtractor
                 {
                     Log("ERROR: Failed to extract data. Raid may not be running.");
                     Console.WriteLine("ERROR: Could not extract data. Please ensure Raid: Shadow Legends is running.");
+                    WriteErrorFile(outputDirectory, "Failed to extract data. Raid may not be running.");
                     return;
                 }
 
                 Log("Extraction completed successfully.");
+                Log("Starting JSON export...");
 
-                string outputPath = options.Output ?? "artifacts.json";
+                ExportJsonFiles(dump, outputDirectory);
 
-                Log($"Serializing data to {outputPath}...");
-                string json = JsonConvert.SerializeObject(dump, SerializerSettings);
-
-                File.WriteAllText(outputPath, json);
-
-                Log($"Output file created: {outputPath}");
-                Log($"Extraction complete. Extracted {dump.Heroes?.Count ?? 0} heroes and {dump.Artifacts?.Count ?? 0} artifacts.");
-
-                Console.WriteLine($"SUCCESS: Extraction completed. Output written to {outputPath}");
+                Log("Export complete.");
+                Console.WriteLine($"SUCCESS: Extraction completed. Files exported to {outputDirectory}");
             }
             catch (Exception ex)
             {
                 Log($"ERROR: {ex.Message}");
                 Log($"Stack trace: {ex.StackTrace}");
                 Console.WriteLine($"ERROR: Extraction failed - {ex.Message}");
+                WriteErrorFile(outputDirectory, ex.Message);
             }
+        }
+
+        private static void ExportJsonFiles(AccountDump dump, string outputDirectory)
+        {
+            Log("Exporting roster.json");
+            var roster = ConvertToRoster(dump);
+            WriteJsonFile(Path.Combine(outputDirectory, "roster.json"), roster);
+
+            Log("Exporting artifacts.json");
+            var artifacts = ConvertToArtifacts(dump);
+            WriteJsonFile(Path.Combine(outputDirectory, "artifacts.json"), artifacts);
+
+            Log("Exporting account.json");
+            var account = ConvertToAccount(dump);
+            WriteJsonFile(Path.Combine(outputDirectory, "account.json"), account);
+
+            Log("Exporting metadata.json");
+            var metadata = CreateMetadata(outputDirectory);
+            WriteJsonFile(Path.Combine(outputDirectory, "metadata.json"), metadata);
+        }
+
+        private static void WriteJsonFile(string filePath, object data)
+        {
+            string json = JsonConvert.SerializeObject(data, SerializerSettings);
+            File.WriteAllText(filePath, json, System.Text.Encoding.UTF8);
+        }
+
+        private static void WriteErrorFile(string outputDirectory, string errorMessage)
+        {
+            try
+            {
+                var error = new
+                {
+                    error = errorMessage,
+                    timestamp = DateTime.UtcNow.ToString("o")
+                };
+                WriteJsonFile(Path.Combine(outputDirectory, "error.json"), error);
+            }
+            catch
+            {
+                // Silently fail
+            }
+        }
+
+        private static object ConvertToRoster(AccountDump dump)
+        {
+            var champions = (dump.Heroes ?? new List<Hero>()).Select(hero => new
+            {
+                championId = hero.Id,
+                name = hero.Name,
+                rarity = hero.Rarity,
+                role = hero.Role,
+                fraction = hero.Fraction,
+                element = hero.Element,
+                grade = hero.Grade,
+                level = hero.Level,
+                experience = hero.Experience,
+                fullExperience = hero.FullExperience,
+                awakenLevel = hero.AwakenLevel,
+                locked = hero.Locked,
+                inStorage = hero.InStorage,
+                marker = hero.Marker,
+                stats = new
+                {
+                    health = hero.Health,
+                    attack = hero.Attack,
+                    defense = hero.Defense,
+                    speed = hero.Speed,
+                    accuracy = hero.Accuracy,
+                    resistance = hero.Resistance,
+                    criticalChance = hero.CriticalChance,
+                    criticalDamage = hero.CriticalDamage,
+                    criticalHeal = hero.CriticalHeal
+                },
+                skills = hero.Skills?.Select(skill => new
+                {
+                    id = skill.Id,
+                    typeId = skill.TypeId,
+                    level = skill.Level
+                }).ToList() ?? new List<object>(),
+                masteries = hero.Masteries ?? new List<int>(),
+                artifacts = hero.Artifacts ?? new List<int>()
+            }).ToList();
+
+            return new { champions };
+        }
+
+        private static object ConvertToArtifacts(AccountDump dump)
+        {
+            var artifactsList = (dump.Artifacts ?? new List<Artifact>()).Select(artifact => new
+            {
+                artifactId = artifact.Id,
+                set = artifact.SetKind,
+                kind = artifact.Kind,
+                rank = artifact.Rank,
+                rarity = artifact.Rarity,
+                level = artifact.Level,
+                isActivated = artifact.IsActivated,
+                isSeen = artifact.IsSeen,
+                requiredFraction = artifact.RequiredFraction,
+                sellPrice = artifact.SellPrice,
+                price = artifact.Price,
+                failedUpgrades = artifact.FailedUpgrades,
+                primaryBonus = artifact.PrimaryBonus != null ? new
+                {
+                    kind = artifact.PrimaryBonus.Kind,
+                    isAbsolute = artifact.PrimaryBonus.IsAbsolute,
+                    value = artifact.PrimaryBonus.Value
+                } : null,
+                secondaryBonuses = artifact.SecondaryBonuses?.Select(bonus => new
+                {
+                    kind = bonus.Kind,
+                    isAbsolute = bonus.IsAbsolute,
+                    value = bonus.Value,
+                    enhancement = bonus.Enhancement,
+                    level = bonus.Level
+                }).ToList() ?? new List<object>()
+            }).ToList();
+
+            return new { artifacts = artifactsList };
+        }
+
+        private static object ConvertToAccount(AccountDump dump)
+        {
+            return new
+            {
+                arenaLeague = dump.ArenaLeague,
+                shards = dump.Shards ?? new Dictionary<string, ShardInfo>(),
+                greatHall = dump.GreatHall ?? new Dictionary<RaidExtractor.Core.Native.Element, Dictionary<RaidExtractor.Core.Native.StatKindId, int>>(),
+                stagePresets = dump.StagePresets ?? new Dictionary<int, int[]>()
+            };
+        }
+
+        private static object CreateMetadata(string outputPath)
+        {
+            return new
+            {
+                extractionTimestamp = DateTime.UtcNow.ToString("o"),
+                extractorVersion = ExtractorVersion,
+                exportPath = Path.GetFullPath(outputPath)
+            };
         }
 
         private static void HandleParseErrors(System.Collections.Generic.IEnumerable<Error> errors)
