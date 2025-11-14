@@ -1,0 +1,12 @@
+@"
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+*.user
+.vs/
+packages/
+*.zip
+*.log
+"@ | Set-Content .gitignore

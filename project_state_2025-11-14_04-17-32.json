@@ -1,0 +1,16 @@
+﻿{
+    "buildTimestamp":  "2025-11-14 04:17:32",
+    "outputFile":  "project_state_2025-11-14_04-17-32.json",
+    "projectRoot":  "C:\\RaidExtractor-master",
+    "metadata":  {
+                     "name":  null,
+                     "slug":  null,
+                     "version":  null,
+                     "sdkVersion":  null,
+                     "dependencies":  null,
+                     "devDependencies":  null
+                 },
+    "files":  [
+
+              ]
+}
