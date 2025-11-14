@@ -1,6 +1,4 @@
-﻿using System;
-using System.Windows.Forms;
-using System.Runtime.InteropServices;
+using System;
 using System.IO;
 using System.IO.Compression;
 using CommandLine;
@@ -12,6 +10,9 @@ namespace RaidExtractor
 {
     class Program
     {
+        private static readonly string LogDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
+        private static readonly string LogFilePath = Path.Combine(LogDirectory, "raidextractor.log");
+
         public static JsonSerializerSettings SerializerSettings = new JsonSerializerSettings
         {
             Formatting = Formatting.Indented,
@@ -27,87 +28,117 @@ namespace RaidExtractor
 
         public class Options
         {
-            [Option('g', "nogui", Required = false, Default = false,
-              HelpText = "Run this program without a GUI.")]
-            public bool NoGui { get; set; }
+            [Option("scan", Required = false, Default = false,
+              HelpText = "Run the extraction scan on the running Raid: Shadow Legends process.")]
+            public bool Scan { get; set; }
 
-            [Option('o', "output", Required = false, Default = "artifacts.json",
-              HelpText = "Destination output file name.\nDefaults to artifacts.json")]
-            public string OutputFile { get; set; }
-
-            [Option('t', "type", Required = false, Default = "json", HelpText = "Output Type: 'json' for JSON file output, 'zip' for ZIP file output.")]
-            public string DumpType { get; set; }
+            [Option("output", Required = false, Default = "artifacts.json",
+              HelpText = "Destination output file path. Defaults to artifacts.json")]
+            public string? Output { get; set; }
         }
 
-        static void RunGUI()
-        {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
-        }
-
-        [STAThread]
         static void Main(string[] args)
         {
-            if (args.Length == 0)
+            InitializeLogging();
+
+            Parser.Default.ParseArguments<Options>(args)
+                .WithParsed(RunWithOptions)
+                .WithNotParsed(errors => HandleParseErrors(errors));
+        }
+
+        private static void InitializeLogging()
+        {
+            try
             {
-                RunGUI();
+                if (!Directory.Exists(LogDirectory))
+                {
+                    Directory.CreateDirectory(LogDirectory);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                var options = new Options();
+                Console.WriteLine($"Warning: Could not create log directory: {ex.Message}");
+            }
+        }
 
-                CommandLine.Parser.Default.ParseArguments<Options>(args)
-                    .WithParsed<Options>(o =>
-                    {
-                        if (!o.NoGui)
-                        {
-                            RunGUI();
-                            return;
-                        }
+        private static void Log(string message)
+        {
+            string logMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
 
-                        Extractor raidExtractor = new Extractor();
-                        AccountDump dump;
-                        try
-                        {
-                            dump = raidExtractor.GetDump();
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"There was an error during Extraction: {ex.Message}");
-                            return;
-                        }
+            Console.WriteLine(logMessage);
 
-                        var outFile = o.OutputFile;
-                        var json = JsonConvert.SerializeObject(dump, Formatting.Indented, SerializerSettings);
-                        if (o.DumpType.ToLower() == "zip")
-                        {
-                            if (!outFile.ToLower().Contains("zip")) outFile += ".zip";
-                            File.Delete(outFile);
+            try
+            {
+                File.AppendAllText(LogFilePath, logMessage + Environment.NewLine);
+            }
+            catch
+            {
+                // Silently fail if we can't write to log file
+            }
+        }
 
-                            using (var memoryStream = new MemoryStream())
-                            {
-                                using (ZipArchive archive = ZipFile.Open(outFile, ZipArchiveMode.Create))
-                                {
-                                    var artifactFile = archive.CreateEntry("artifacts.json");
+        private static void RunWithOptions(Options options)
+        {
+            if (!options.Scan)
+            {
+                Console.WriteLine("RaidExtractor - .NET 8 Console Edition");
+                Console.WriteLine();
+                Console.WriteLine("Usage:");
+                Console.WriteLine("  RaidExtractor --scan --output <path>");
+                Console.WriteLine();
+                Console.WriteLine("Options:");
+                Console.WriteLine("  --scan          Execute extraction scan");
+                Console.WriteLine("  --output <path> Output file path (default: artifacts.json)");
+                return;
+            }
 
-                                    using (var entryStream = artifactFile.Open())
-                                    {
-                                        using (var streamWriter = new StreamWriter(entryStream))
-                                        {
-                                            streamWriter.Write(json);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            if (o.DumpType.ToLower() != "json") Console.WriteLine("Unknown Output type. Outputting file in JSON format.");
-                            File.WriteAllText(outFile, json);
-                        }
-                        Console.WriteLine($"Output file {outFile} has been created.");
-                    });
+            Log("Starting RaidExtractor scan...");
+
+            try
+            {
+                Log("Initializing extractor...");
+                Extractor raidExtractor = new Extractor();
+
+                Log("Extracting data from Raid: Shadow Legends...");
+                AccountDump? dump = raidExtractor.GetDump();
+
+                if (dump == null)
+                {
+                    Log("ERROR: Failed to extract data. Raid may not be running.");
+                    Console.WriteLine("ERROR: Could not extract data. Please ensure Raid: Shadow Legends is running.");
+                    return;
+                }
+
+                Log("Extraction completed successfully.");
+
+                string outputPath = options.Output ?? "artifacts.json";
+
+                Log($"Serializing data to {outputPath}...");
+                string json = JsonConvert.SerializeObject(dump, SerializerSettings);
+
+                File.WriteAllText(outputPath, json);
+
+                Log($"Output file created: {outputPath}");
+                Log($"Extraction complete. Extracted {dump.Heroes?.Count ?? 0} heroes and {dump.Artifacts?.Count ?? 0} artifacts.");
+
+                Console.WriteLine($"SUCCESS: Extraction completed. Output written to {outputPath}");
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR: {ex.Message}");
+                Log($"Stack trace: {ex.StackTrace}");
+                Console.WriteLine($"ERROR: Extraction failed - {ex.Message}");
+            }
+        }
+
+        private static void HandleParseErrors(System.Collections.Generic.IEnumerable<Error> errors)
+        {
+            foreach (var error in errors)
+            {
+                if (error is not HelpRequestedError && error is not VersionRequestedError)
+                {
+                    Console.WriteLine($"Error: {error}");
+                }
             }
         }
     }
