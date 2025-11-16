@@ -97,11 +97,13 @@ namespace RaidExtractor
                 Console.WriteLine("Usage:");
                 Console.WriteLine("  RaidExtractor --scan --output <path>");
                 Console.WriteLine("  RaidExtractor --version");
+                Console.WriteLine("  RaidExtractor --help");
                 Console.WriteLine();
                 Console.WriteLine("Options:");
                 Console.WriteLine("  --scan          Execute extraction scan");
                 Console.WriteLine("  --output <path> Output directory path (default: ./export)");
                 Console.WriteLine("  --version       Display version information");
+                Console.WriteLine("  --help          Display this help screen");
                 return;
             }
 
@@ -125,9 +127,9 @@ namespace RaidExtractor
 
                 if (dump == null)
                 {
-                    Log("ERROR: Failed to extract data. Raid may not be running.");
-                    Console.WriteLine("ERROR: Could not extract data. Please ensure Raid: Shadow Legends is running.");
-                    WriteErrorFile(outputDirectory, "Failed to extract data. Raid may not be running.");
+                    Log("ERROR: RAID client not detected.");
+                    Console.WriteLine("ERROR: RAID client not detected. Please ensure Raid: Shadow Legends is running.");
+                    WriteErrorFile(outputDirectory, "RAID client not detected");
                     return;
                 }
 
@@ -141,10 +143,14 @@ namespace RaidExtractor
             }
             catch (Exception ex)
             {
-                Log($"ERROR: Fatal error during extraction - {ex.Message}");
+                string errorMessage = ex.Message.Contains("Raid needs to be running")
+                    ? "RAID client not detected"
+                    : ex.Message;
+
+                Log($"ERROR: Fatal error during extraction - {errorMessage}");
                 Log($"Stack trace: {ex.StackTrace}");
-                Console.WriteLine($"ERROR: Extraction failed - {ex.Message}");
-                WriteErrorFile(outputDirectory, ex.Message);
+                Console.WriteLine($"ERROR: Extraction failed - {errorMessage}");
+                WriteErrorFile(outputDirectory, errorMessage);
                 LogExtractionSummary(null, false);
             }
         }
