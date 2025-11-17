@@ -1,0 +1,22 @@
+{
+  "version": "254",
+  "MemoryLocation": "0x0",
+  "ExternalStorageAddress": "0x0",
+  "AppModelUserWrapper": "0x1B8",
+  "UserWrapperHeroes": "0x28",
+  "UserWrapperShards": "0x68",
+  "UserWrapperArena": "0xB0",
+  "UserWrapperCapitol": "0xC8",
+  "HeroesWrapperArtifactData": "0x90",
+  "HeroesWrapperHeroData": "0x80",
+  "ArenaWrapperLeagueId": "0x60",
+  "CapitolWrapperVillageData": "0x18",
+  "UserArtifactDataArtifacts": "0x28",
+  "UserArtifactArtifactDataByHeroId": "0x30",
+  "UserHeroDataHeroById": "0x18",
+  "UserHeroDataBattlePresets": "0x38",
+  "UserVillageDataCapitolBonusLevelByStatByElement": "0x30",
+  "ShardWrapperData": "0x18",
+  "ShardData": "0x10",
+  "ShardSummonData": "0x30"
+}
